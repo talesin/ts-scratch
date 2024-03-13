@@ -3,7 +3,6 @@ import { DOMParser } from "@xmldom/xmldom";
 function* nodeIterator(node: Node | null): IterableIterator<Node> {
     if (node === null) return;
 
-    console.log(`nodeIterator: ${node.nodeName}`)
     yield node;
     yield *nodeIterator(node.firstChild);
     yield *nodeIterator(node.nextSibling);
@@ -32,6 +31,7 @@ class LazyListIterator<T> implements Iterator<T> {
         }
 
         const value = this.head;
+
         this.head = this.tail?.head;
         this.tail = this.tail?.tail;
 
@@ -40,12 +40,14 @@ class LazyListIterator<T> implements Iterator<T> {
 
 }
 
-interface Stream<T> extends Iterable<T> {
-    map<U>(fn: (value: T) => U): Stream<U>;
-    filter(fn: (value: T) => boolean): Stream<T>;
+interface Mappable<T> extends Iterable<T> {
+    map<U>(fn: (value: T) => U): Mappable<U>;
+    filter(fn: (value: T) => boolean): Mappable<T>;
 }
 
-class LazyList<T> implements Stream<T> {
+class LazyList<T> implements Mappable<T> {
+    private __tail?: LazyList<T>;
+
     constructor(private _head?: T, private _tail?: () => LazyList<T>) {}
 
     get head(): T | undefined {
@@ -53,7 +55,8 @@ class LazyList<T> implements Stream<T> {
     }
 
     get tail(): LazyList<T> | undefined {
-        return this._tail?.();
+        this.__tail ??= this._tail?.();
+        return this.__tail;
     }
 
     [Symbol.iterator](): Iterator<T> {
@@ -64,45 +67,38 @@ class LazyList<T> implements Stream<T> {
         const iterator = iterable[Symbol.iterator]();
         const { done, value } = iterator.next();
         if (!done) {
-            // console.log(`LazyList.from: ${value}`);
             return new LazyList(value, () => this.from(iterable))
         }
-        else {
-            return new LazyList();
-        }
+
+        return new LazyList();
     }
 
     map<U>(fn: (value: T) => U): LazyList<U> {
-        if (this._head === undefined) {
+        if (this.head === undefined) {
             return new LazyList();
         }
 
-        console.log(`map: ${this._head}`);
-        if (this._tail === undefined) {
-            return new LazyList(fn(this._head));
+        if (this.tail === undefined) {
+            return new LazyList(fn(this.head));
         }
-        else {
-            return new LazyList(fn(this._head), () => (this._tail?.() as LazyList<T>).map(fn));
-        }
+
+        return new LazyList(fn(this.head), () => (this.tail as LazyList<T>).map(fn));
     }
 
     filter(fn: (value: T) => boolean): LazyList<T> {
-        if (this._head === undefined) {
+        if (this.head === undefined) {
             return new LazyList();
         }
 
-        console.log(`filter: ${this._head}`);
-        if (this._tail === undefined) {
-            return fn(this._head) ? new LazyList(this._head) : new LazyList();
+        if (this.tail === undefined) {
+            return fn(this.head) ? new LazyList(this.head) : new LazyList();
         }
-        else {
-            if (fn(this._head)) {
-                return new LazyList(this._head, () => (this._tail?.() as LazyList<T>).filter(fn));
-            }
-            else {
-                return (this._tail?.() as LazyList<T>).filter(fn);
-            }
+
+        if (fn(this.head)) {
+            return new LazyList(this.head, () => (this.tail as LazyList<T>).filter(fn));
         }
+
+        return (this.tail as LazyList<T>).filter(fn);
     }
 
 
@@ -111,7 +107,7 @@ class LazyList<T> implements Stream<T> {
 
 const lazyList = LazyList.from(nodeIterator(doc))
     .map(node => node.nodeName)
-    // .filter(name => name === "p" || name === "div");
+    .filter(name => name === "p" || name === "div");
 
 for (let node of lazyList) {
     console.log(`for: ${node}`);
